@@ -1,0 +1,7 @@
+name = Flightinfo Notifications
+description = Custom module for alerting users of flights delays
+package = Flightinfo
+core = 7.x
+files[] = includes/flightInfoFlightsNotificationsAdmin.inc
+files[] = includes/flightInfoFlightsNotifications.inc
+configure = admin/config/flightinfo/notifications

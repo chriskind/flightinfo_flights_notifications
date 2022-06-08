@@ -1,0 +1,176 @@
+<?php
+
+
+
+function flightinfo_flights_notifications_menu() {
+  return flightInfoFlightsNotificationsAdmin::get_admin_menu();
+}
+
+function flightinfo_flights_notifications_preprocess(&$vars) {
+  
+}
+
+function flightinfo_flights_notifications_theme() {
+  return array(
+    'flightinfo_flights_notifications_confirm_message' => array(
+      'variables' => array(
+        'subject' => NULL,
+        'message' => NULL,
+        'sms_subject' => NULL,
+        'sms_message' => NULL,
+      ),
+      'path' => drupal_get_path('module', 'flightinfo_flights_notifications') . '/theme',
+      'template' => 'confirm-message',
+    ),
+  );
+}
+
+// Theme confirmation message
+function flightinfo_flights_notifications_confirm_message($template = 'confirm_message', $subject = NULL, $message = NULL, $sms_subject = NULL, $sms_message = NULL) {
+  $vars = array(
+      'subject' => str_replace("\n", '<br>', $subject),
+      'message' => str_replace("\n", '<br>', $message),
+      'sms_subject' => str_replace("\n", '<br>', $sms_subject),
+      'sms_message' => str_replace("\n", '<br>', $sms_message),
+    );
+  
+  $output = theme('flightinfo_flights_notifications_confirm_message', $vars);
+  return $output;
+}
+
+function flightinfo_flights_notifications_form_alter(&$form, &$form_state, $form_id) {
+  
+  if($form_id == 'flight_notifications_node_form') {
+    
+    // adhd_buffer_to_dsm($form, 'dpm');
+    // adhd_buffer_to_dsm($form_state['values'], 'dpm');
+
+    $flightInfoFlightsNotifications = new flightInfoFlightsNotifications($form, $form_state);
+    $flightInfoFlightsNotifications = $flightInfoFlightsNotifications->get_form();
+    
+    $form = $flightInfoFlightsNotifications['form'];
+    $form_state = $flightInfoFlightsNotifications['form_state'];
+    
+    adhd_buffer_to_dsm($form, 'dpm');
+    adhd_buffer_to_dsm($form_state, 'dpm');
+    
+  }
+}
+
+/**
+ * Handling of a flight delay form message submit
+ * 
+ */
+function flightinfo_flights_notifications_message_submit($form, &$form_state) {
+  
+  adhd_buffer_to_dsm($form_state['values'], 'dpm');
+  
+  $flight_id = $form_state['values']['field_notification_flight'];
+  
+  // End Users
+  $email_batch_users = $form_state['values']['email_batch_users'];
+  $sms_batch_users = $form_state['values']['sms_batch_users'];
+  
+  // Flight Info Admins
+  $email_batch_admin = $form_state['values']['email_batch_admin'];
+  $sms_batch_admin = $form_state['values']['sms_batch_admin'];
+  
+  // Flight Info Developers
+  $email_batch_devel = $form_state['values']['email_batch_devel'];
+  $sms_batch_devel = $form_state['values']['sms_batch_devel'];
+  
+  
+  $from = 'no-reply@flightinfo.org';
+  $subject = $form_state['values']['field_fln_subject']['und'][0]['value'];
+  $message = $form_state['values']['body']['und'][0]['value'];
+  
+  $sms_subject = $form_state['values']['field_fln_sms_subject']['und'][0]['value'];
+  $sms_message = $form_state['values']['field_fln_sms_message']['und'][0]['value'];
+  
+  $test_mode = variable_get('flighinfo_notifications_test_mode', 'devel');
+  
+  switch ($test_mode) {
+    case 'devel':
+      $batch_emails = $email_batch_devel;
+      $batch_sms = $sms_batch_devel;
+      break;
+      
+    case 'admin_only':
+      $batch_emails = $email_batch_admin;
+      $batch_sms = $sms_batch_admin;
+      break;
+      
+    default:
+      
+      if(!empty($email_batch_admin)) {
+        $batch_emails = array_merge($email_batch_users,$email_batch_admin);
+      } else {
+        $batch_emails = $email_batch_users;
+        drupal_set_message('There are no admin emails configured', 'warning');
+      }
+      
+      if(!empty($sms_batch_admin)) {
+        $batch_sms = array_merge($sms_batch_users,$sms_batch_admin);
+      } else {
+        $batch_sms = $sms_batch_users;
+        drupal_set_message('There are no admin phone numbers configured', 'warning');
+      }
+      break;
+  }
+  
+  adhd_buffer_to_dsm($batch_emails, 'dpm');
+  adhd_buffer_to_dsm($batch_sms, 'dpm');
+  
+  foreach($batch_emails as $to) {
+    flightinfo_send_mail($to, $from, $subject, $message, $flight_id);
+  }
+  
+  foreach($batch_sms as $phone_num) {
+    flightinfo_send_sms($phone_num, $sms_subject, $sms_message);
+  }
+  // adhd_buffer_to_dsm_object_properties(($form));
+
+}
+
+/*
+ * Need to enable and key smpt and mime mail for this to work!!!
+ */
+
+function flightinfo_send_mail($to, $from, $subject, $message, $flight_id = NULL) {
+  
+  $module = 'flightinfo_notifications';
+  $key = 'flightinfo-notifications';
+  $language = language_default();
+  $params['subject'] = t($subject);
+  $params['body'] = array(t($message));
+  $params['headers']['Content-Type'] = 'text/html; charset=UTF-8; format=flowed';
+  
+  // $id = date('Y-m-d h:i:s') . '-' . time();
+  
+  $language = LANGUAGE_NONE;
+  $from = 'no-reply@flightinfo.org';
+  
+  $send = TRUE;
+  
+  $mail = drupal_mail($module, $key, $to, $language, $params, $from, $send);
+  // dsm($message);
+  // adhd_buffer_to_dsm($mail, 'dpm');
+  
+  if($mail['result'] === TRUE) {
+    drupal_set_message($mail['to'] . ' successfully sent');
+  } else {
+    drupal_set_message('Error sending ' . $mail['to'], 'error');
+  }
+  
+}
+
+/**
+ * Implements hook_mail().
+ */
+function flightinfo_notifications_mail($key, &$message, $params) {
+  $message['subject'] = $params['subject'];
+  $message['body'] = $params['body'];
+  // $message['headers']['Content-Type'] = $param['headers']['Content-Type'];
+  // $message['format'] = $params['format'];
+}
+
